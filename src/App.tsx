@@ -5,6 +5,11 @@ import AboutPage from './components/AboutPage';
 import SubjectDashboard from './components/decks/SubjectDashboard';
 import DeckDetails from './components/decks/DeckDetails';
 import StudyInterface from './components/study/StudyInterface';
+import AddCardPage from './components/cards/AddCardPage';
+import CardBrowser from './components/cards/CardBrowser';
+import StatsOverview from './components/stats/StatsOverview';
+import HardestCards from './components/stats/HardestCards';
+import SessionHistory from './components/stats/SessionHistory';
 
 function NotFoundPage() {
   return (
@@ -29,6 +34,11 @@ export default function App() {
             <Route path="/subjects/:id" element={<DeckDetails />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/study/:deckId" element={<StudyInterface />} />
+            <Route path="/decks/:id/add-card" element={<AddCardPage />} />
+            <Route path="/decks/:id/cards" element={<CardBrowser />} />
+            <Route path="/stats" element={<StatsOverview />} />
+            <Route path="/stats/hardest" element={<HardestCards />} />
+            <Route path="/sessions" element={<SessionHistory />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </main>
