@@ -30,6 +30,9 @@ export default function StudyInterface() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [cardStartTime, setCardStartTime] = useState<number>(0);
   const [notice, setNotice] = useState('');
+  
+  // NEW: State for our custom error notification
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -38,15 +41,10 @@ export default function StudyInterface() {
   const [deckArchived, setDeckArchived] = useState(false);
   const [error, setError] = useState('');
 
-  // Cards whose first answer has been sent to the server in this session.
-  // Repeats of a card are practice only and are never sent again.
   const answeredIds = useRef<Set<string>>(new Set());
-  // Cards already requeued once in this session, so a repeat is not requeued again.
   const requeuedIds = useRef<Set<string>>(new Set());
-  // Makes the initial load run once per deck, even under React StrictMode's double effects.
   const startedFor = useRef<string | null>(null);
 
-  // Derived values computed during render (Rubric Requirement)
   const cardsRemaining = Math.max(queue.length - currentIndex, 0);
   const progressPercentage = originalCount > 0 ? (answeredCount / originalCount) * 100 : 0;
   const currentCard = queue[currentIndex];
@@ -57,14 +55,12 @@ export default function StudyInterface() {
       if (!deckId) throw new Error('No Deck ID provided.');
       setDeckArchived(false);
 
-      // 1. An archived deck is paused, so no queue is built and no session is started.
       const deckRes = await api.get<ApiDeck>(`/decks/${deckId}`);
       if (deckRes.data.archived) {
         setDeckArchived(true);
         return;
       }
 
-      // Reset per-deck state, in case the route changes to another deck while this component is mounted.
       answeredIds.current.clear();
       requeuedIds.current.clear();
       setSession(null);
@@ -72,17 +68,15 @@ export default function StudyInterface() {
       setAnsweredCount(0);
       setIsFlipped(false);
       setNotice('');
+      setErrorNotice(null);
       setIsFinished(false);
       setPendingFinish(false);
 
-      // 2. Fetch the queue first, so a deck with nothing due does not create an empty session.
       const queueRes = await api.get(`/study/queue?deck=${deckId}`);
-      // Combine due cards and new cards into a single playable queue
       const combinedQueue: Card[] = [...queueRes.data.due, ...queueRes.data.new];
       setQueue(combinedQueue);
       setOriginalCount(combinedQueue.length);
 
-      // 3. Start a session only when there is something to study.
       if (combinedQueue.length > 0) {
         const sessionRes = await api.post('/sessions', { deck: deckId });
         setSession(sessionRes.data);
@@ -117,13 +111,13 @@ export default function StudyInterface() {
       setIsFinished(true);
     } catch (err: unknown) {
       if (apiMessage(err) === SESSION_ALREADY_COMPLETED) {
-        // An earlier attempt reached the server, so the session is already closed.
         setPendingFinish(false);
         setIsFinished(true);
       } else {
         console.error(err);
         setPendingFinish(true);
-        alert('Could not save the end of this session. Please try again.');
+        // REPLACED ALERT:
+        setErrorNotice('Could not save the end of this session. Please try again.');
       }
     } finally {
       setIsSubmitting(false);
@@ -135,14 +129,13 @@ export default function StudyInterface() {
 
     const card = currentCard;
     const isRepeat = answeredIds.current.has(card._id);
-    // A first "again" puts the card back at the end of this session, once.
     const shouldRequeue = rating === 'again' && !requeuedIds.current.has(card._id);
     const isLastCard = !shouldRequeue && currentIndex + 1 >= queue.length;
 
     setIsSubmitting(true);
     setNotice('');
+    setErrorNotice(null);
     try {
-      // 4. Send only the first answer for each card. Repeats are practice only.
       if (!isRepeat) {
         const timeSpentMs = Date.now() - cardStartTime;
         await api.post(`/cards/${card._id}/reviews`, {
@@ -155,7 +148,8 @@ export default function StudyInterface() {
       }
     } catch (err: unknown) {
       console.error(err);
-      alert(apiMessage(err) ?? 'Failed to save review. Please try again.');
+      // REPLACED ALERT:
+      setErrorNotice(apiMessage(err) ?? 'Failed to save review. Please try again.');
       setIsSubmitting(false);
       return;
     }
@@ -168,14 +162,12 @@ export default function StudyInterface() {
     }
 
     if (isLastCard) {
-      // 5. Close the session. The answer is already saved, so a failed close can be retried.
       setCurrentIndex(currentIndex + 1);
       setPendingFinish(true);
       await finishSession();
       return;
     }
 
-    // Move to next card
     setCurrentIndex((prev) => prev + 1);
     setIsFlipped(false);
     setCardStartTime(Date.now());
@@ -190,23 +182,22 @@ export default function StudyInterface() {
       await api.patch(`/cards/${card._id}/suspension`, { suspended: true });
     } catch (err: unknown) {
       console.error(err);
-      alert(apiMessage(err) ?? 'Could not suspend this card. Please try again.');
+      // REPLACED ALERT:
+      setErrorNotice(apiMessage(err) ?? 'Could not suspend this card. Please try again.');
       setIsSubmitting(false);
       return;
     }
     setIsSubmitting(false);
 
-    // Suspended cards leave the queue. Earlier copies of the same card (from a requeue) go too.
-    // The next card's position is counted after removing the suspended one from the part already shown.
     const remaining = queue.filter((item) => item._id !== card._id);
     const nextIndex = queue.slice(0, currentIndex).filter((item) => item._id !== card._id).length;
 
-    // A card that was never answered leaves the progress total, so the bar can still reach 100%.
     if (!answeredIds.current.has(card._id)) {
       setOriginalCount((count) => Math.max(count - 1, 0));
     }
 
     setNotice('');
+    setErrorNotice(null);
     setIsFlipped(false);
     setCardStartTime(Date.now());
     setQueue(remaining);
@@ -226,7 +217,8 @@ export default function StudyInterface() {
       } catch (err: unknown) {
         if (apiMessage(err) !== SESSION_ALREADY_COMPLETED) {
           console.error(err);
-          alert('Could not end this session. Please try again.');
+          // REPLACED ALERT:
+          setErrorNotice('Could not end this session. Please try again.');
           setIsSubmitting(false);
           return;
         }
@@ -280,7 +272,6 @@ export default function StudyInterface() {
   }
 
   if (!currentCard) {
-    // Every card has been handled, so the only step left is closing the session.
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
         <div className="bg-white p-10 rounded-3xl shadow-sm border border-slate-200 text-center max-w-md w-full">
@@ -303,7 +294,21 @@ export default function StudyInterface() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col relative">
+      
+      {/* NEW: Custom Error Notice Block */}
+      {errorNotice && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-50 text-red-700 px-6 py-3 rounded-full font-semibold shadow-lg border border-red-200 animate-in slide-in-from-top-4 z-40 flex items-center gap-3">
+          <span>⚠ {errorNotice}</span>
+          <button 
+            onClick={() => setErrorNotice(null)} 
+            className="text-red-700 hover:text-red-900 text-xl leading-none font-bold ml-2"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       {/* Top Navigation & Progress */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
         <button

@@ -23,6 +23,7 @@ export default function SubjectDashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
   // State to manage the custom delete popup
   const [subjectToDelete, setSubjectToDelete] = useState<{id: string, name: string} | null>(null);
@@ -48,7 +49,8 @@ export default function SubjectDashboard() {
     }
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchSubjects();
   }, [fetchSubjects]);
 
@@ -73,7 +75,7 @@ export default function SubjectDashboard() {
       void fetchSubjects();
     } catch (err: unknown) {
       console.error(err);
-      alert(apiMessage(err) ?? 'Failed to delete subject.');
+      setErrorNotice(apiMessage(err) ?? 'Failed to delete subject.');
     } finally {
       setSubjectToDelete(null); // Close the modal
     }
@@ -94,6 +96,18 @@ export default function SubjectDashboard() {
       {successMessage && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 bg-green-50 text-green-700 px-6 py-3 rounded-full font-semibold shadow-lg border border-green-200 animate-in slide-in-from-top-4 z-40">
           ✓ {successMessage}
+        </div>
+      )}
+
+      {errorNotice && (
+        <div className="fixed top-36 left-1/2 -translate-x-1/2 bg-red-50 text-red-700 px-6 py-3 rounded-full font-semibold shadow-lg border border-red-200 animate-in slide-in-from-top-4 z-40 flex items-center gap-3">
+          <span>⚠ {errorNotice}</span>
+          <button 
+            onClick={() => setErrorNotice(null)} 
+            className="text-red-700 hover:text-red-900 text-xl leading-none font-bold ml-2"
+          >
+            &times;
+          </button>
         </div>
       )}
 

@@ -29,6 +29,9 @@ export default function DeckDetails() {
   const [successMessage, setSuccessMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [busyDeckId, setBusyDeckId] = useState<string | null>(null);
+  
+  // NEW: State to manage the custom delete popup
+  const [deckToDelete, setDeckToDelete] = useState<{id: string, title: string} | null>(null);
 
   const fetchSubjectAndDecks = useCallback(async () => {
     try {
@@ -50,6 +53,7 @@ export default function DeckDetails() {
   }, [id]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchSubjectAndDecks();
   }, [fetchSubjectAndDecks]);
 
@@ -115,27 +119,29 @@ export default function DeckDetails() {
     }
   };
 
-  const handleDeleteDeck = async (deck: ApiDeck) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${deck.title}"?\n\n` +
-        'This may permanently delete the deck, its flashcards, and associated study history. This action cannot be undone.'
-    );
+  // NEW: Opens the modal instead of the native window.confirm
+  const handleDeleteDeck = (deck: ApiDeck) => {
+    setDeckToDelete({ id: deck._id, title: deck.title });
+  };
 
-    if (!confirmed) return;
-
-    setBusyDeckId(deck._id);
+  // NEW: Executes the actual API deletion when confirmed
+  const confirmDelete = async () => {
+    if (!deckToDelete) return;
+    
+    setBusyDeckId(deckToDelete.id);
     setActionError('');
 
     try {
-      await api.delete(`/decks/${deck._id}`);
-      setDecks((currentDecks) => currentDecks.filter((item) => item._id !== deck._id));
-      setArchivedDecks((currentDecks) => currentDecks.filter((item) => item._id !== deck._id));
-      flashSuccess(`"${deck.title}" was deleted successfully.`);
+      await api.delete(`/decks/${deckToDelete.id}`);
+      setDecks((currentDecks) => currentDecks.filter((item) => item._id !== deckToDelete.id));
+      setArchivedDecks((currentDecks) => currentDecks.filter((item) => item._id !== deckToDelete.id));
+      flashSuccess(`"${deckToDelete.title}" was deleted successfully.`);
     } catch (err: unknown) {
       console.error(err);
       setActionError(apiMessage(err) ?? 'Failed to delete the deck. Please try again.');
     } finally {
       setBusyDeckId(null);
+      setDeckToDelete(null);
     }
   };
 
@@ -238,7 +244,7 @@ export default function DeckDetails() {
 
           <button
             type="button"
-            onClick={() => void handleDeleteDeck(deck)}
+            onClick={() => handleDeleteDeck(deck)}
             disabled={busy}
             className="w-full min-h-10 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -377,6 +383,41 @@ export default function DeckDetails() {
             void refreshDecks();
           }}
         />
+      )}
+
+      {/* Custom Delete Confirmation Modal */}
+      {deckToDelete && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 text-center">
+            
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-8 border-red-50/50">
+              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Delete Deck?</h3>
+            <p className="text-slate-500 mb-8 text-sm leading-relaxed">
+              Are you sure you want to delete <span className="font-semibold text-slate-800">"{deckToDelete.title}"</span>? 
+              This may permanently delete the deck, its flashcards, and associated study history. This action cannot be undone.
+            </p>
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeckToDelete(null)} 
+                className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-600 font-semibold rounded-xl hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => void confirmDelete()}
+                className="flex-1 px-4 py-2.5 bg-red-500 text-white font-semibold rounded-xl hover:bg-red-600 transition-colors shadow-sm shadow-red-200"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -3,13 +3,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '../../api/axios';
+import { apiMessage } from '../../api/errors';
 
 // 1. Zod Schema defined OUTSIDE the component (Rubric Requirement)
 const deckSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters").max(60, "Title must be under 60 characters"),
   description: z.string().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a valid hex color"),
-  // The input is read as a number with valueAsNumber (see register below), so the schema takes a plain number.
   dailyNewLimit: z.number({ error: "Enter a number" }).int("Must be a whole number").min(1, "Must be at least 1").max(100, "Maximum limit is 100"),
 });
 
@@ -39,14 +39,13 @@ export default function CreateDeckForm({ subjectId, onClose, onSuccess }: Props)
   const onSubmit = async (data: DeckFormData) => {
     try {
       setServerError('');
-      // We must append the subjectId to the payload since the backend requires it
       await api.post('/decks', {
         ...data,
         subject: subjectId
       });
       onSuccess();
-    } catch (err: any) {
-      setServerError(err.response?.data?.message || 'Failed to create deck. Please try again.');
+    } catch (err: unknown) {
+      setServerError(apiMessage(err) ?? 'Failed to create deck. Please try again.');
     }
   };
 

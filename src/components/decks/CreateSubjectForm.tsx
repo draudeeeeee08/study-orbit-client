@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { api } from '../../api/axios'; // Using your single configured instance
+import { api } from '../../api/axios';
+import { apiMessage } from '../../api/errors'; // Added for proper type-safe error handling
 
 // 1. Zod Schema defined OUTSIDE the component (Rubric Requirement)
 const subjectSchema = z.object({
@@ -29,18 +30,18 @@ export default function CreateSubjectForm({ onClose, onSuccess }: Props) {
     formState: { errors, isSubmitting },
   } = useForm<SubjectFormData>({
     resolver: zodResolver(subjectSchema),
-    defaultValues: { color: '#4f46e5' } // Default to an indigo color
+    defaultValues: { color: '#4f46e5' }
   });
 
   // 4. Submit handler mapped to your leader's API
   const onSubmit = async (data: SubjectFormData) => {
     try {
       setServerError('');
-      // Using the single Axios instance requested by the rubric
       await api.post('/subjects', data); 
-      onSuccess(); // Triggers a data refresh and closes the modal
-    } catch (err: any) {
-      setServerError(err.response?.data?.message || 'Failed to create subject. Please try again.');
+      onSuccess(); 
+    } catch (err: unknown) {
+      // Fixed from `err: any` to `err: unknown` to clear lint warnings
+      setServerError(apiMessage(err) ?? 'Failed to create subject. Please try again.');
     }
   };
 

@@ -1,75 +1,31 @@
-# React + TypeScript + Vite
+# Study Orbit
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Group Members:** 
+* Justine Eduard T. Mercado (Frontend - Core Study Flow & Subject Routing)
+* Mark Rayshawn T. Villanueva (Frontend - Card Management & Statistics)
+* Cyrus Justine Q. Chu (Backend - API & Database)
 
-Currently, two official plugins are available:
+## Concept & Data Processing
+Study Orbit is a full-stack MERN spaced-repetition flashcard application designed to optimize learning retention. The application processes user study sessions by capturing performance ratings ("Again", "Hard", "Good", "Easy") and feeds them into a custom backend implementation of the SuperMemo-2 (SM-2) algorithm. It dynamically calculates and updates the subsequent review intervals, retention ease factors, and next-due dates for every card, while aggregating session data to compute global user accuracy and identify hardest-to-retain subjects.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
+* **Spaced Repetition Engine:** Implements SM-2 logic to automatically schedule flashcard reviews based on individual recall performance.
+* **Subject & Deck Management:** Create, organize, and track study materials across distinct subjects.
+* **Performance Analytics:** Real-time calculation of overall retention rates, study streaks, and hardest-card reports.
+* **Study Session Tracking:** Logs historical session duration, card counts, and accuracy percentages.
 
-## React Compiler
+## Screenshots
+*(Note:Screenshots are in separated folder)*
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Setup Instructions
+1. Clone the repository: `git clone https://github.com/draudeeeeee08/study-orbit-client.git`
+2. Navigate to the client directory: `cd study-orbit-client`
+3. Install dependencies: `npm install`
+4. Create a `.env` file in the root directory.
+5. Start the Vite development server: `npm run dev`
 
-## Expanding the ESLint configuration
+## Required Environment Variables
+Create a `.env` file containing the following variable. (Do not commit this file to Git).
+```env
+VITE_API_URL=http://localhost:5000/api
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
