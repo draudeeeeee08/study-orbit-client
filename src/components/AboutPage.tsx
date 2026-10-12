@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 const developers = [
   {
@@ -22,6 +23,8 @@ const developers = [
 ];
 
 export default function AboutPage() {
+  useDocumentTitle('About');
+
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-12">
       <div className="mx-auto max-w-5xl space-y-10">
