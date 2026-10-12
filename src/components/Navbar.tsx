@@ -17,12 +17,19 @@ export default function Navbar() {
           </span>
         </Link>
 
-        <div className="flex gap-6 items-center">
+        <div className="flex flex-wrap items-center justify-end gap-3 sm:gap-6">
           <Link
             to="/subjects"
             className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors"
           >
             My Subjects
+          </Link>
+
+          <Link
+            to="/stats"
+            className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors"
+          >
+            Statistics
           </Link>
 
           <Link
