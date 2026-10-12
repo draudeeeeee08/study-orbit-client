@@ -9,8 +9,8 @@ const deckSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters").max(60, "Title must be under 60 characters"),
   description: z.string().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a valid hex color"),
-  // z.coerce.number() ensures the HTML string input is safely converted to a number
-  dailyNewLimit: z.coerce.number().min(1, "Must be at least 1").max(100, "Maximum limit is 100"),
+  // The input is read as a number with valueAsNumber (see register below), so the schema takes a plain number.
+  dailyNewLimit: z.number({ error: "Enter a number" }).int("Must be a whole number").min(1, "Must be at least 1").max(100, "Maximum limit is 100"),
 });
 
 type DeckFormData = z.infer<typeof deckSchema>;
@@ -94,7 +94,7 @@ export default function CreateDeckForm({ subjectId, onClose, onSuccess }: Props)
               <label className="block text-sm font-semibold text-slate-700">Daily New Cards</label>
               <input 
                 type="number"
-                {...register('dailyNewLimit')} 
+                {...register('dailyNewLimit', { valueAsNumber: true })} 
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
               />
               {errors.dailyNewLimit && <p className="text-red-500 text-sm font-medium">{errors.dailyNewLimit.message}</p>}
