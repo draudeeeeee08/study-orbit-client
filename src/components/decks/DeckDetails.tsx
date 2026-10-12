@@ -146,7 +146,7 @@ export default function DeckDetails() {
     return (
       <div
         key={deck._id}
-        className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 hover:shadow-md transition-all flex flex-col h-full group relative overflow-hidden"
+        className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 hover:shadow-md transition-all flex flex-col group relative overflow-hidden"
       >
         <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: deck.color }} />
 
@@ -330,7 +330,7 @@ export default function DeckDetails() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 items-start gap-6">
             {decks.map(renderDeckCard)}
           </div>
         )}
@@ -351,7 +351,7 @@ export default function DeckDetails() {
                 No archived decks in {subject.name}.
               </p>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 items-start gap-6">
                 {archivedDecks.map(renderDeckCard)}
               </div>
             )
