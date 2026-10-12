@@ -10,6 +10,7 @@ import CardBrowser from './components/cards/CardBrowser';
 import StatsOverview from './components/stats/StatsOverview';
 import HardestCards from './components/stats/HardestCards';
 import SessionHistory from './components/stats/SessionHistory';
+import SessionDetail from './components/stats/SessionDetail';
 
 function NotFoundPage() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/stats" element={<StatsOverview />} />
             <Route path="/stats/hardest" element={<HardestCards />} />
             <Route path="/sessions" element={<SessionHistory />} />
+            <Route path="/sessions/:id" element={<SessionDetail />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </main>

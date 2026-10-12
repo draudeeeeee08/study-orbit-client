@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/axios';
+import { formatDuration } from '../../utils/format';
 
 interface StudySession {
   _id: string;
@@ -27,17 +28,6 @@ function getErrorMessage(error: unknown): string {
     if (typeof response?.data?.message === 'string') return response.data.message;
   }
   return 'Unable to load study history. Please try again.';
-}
-
-function formatDuration(milliseconds: number): string {
-  if (!Number.isFinite(milliseconds) || milliseconds < 0) return '—';
-  const totalSeconds = Math.round(milliseconds / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }
 
 export default function SessionHistory() {
@@ -98,6 +88,7 @@ export default function SessionHistory() {
                   <th scope="col" className="px-5 py-4">Time spent</th>
                   <th scope="col" className="px-5 py-4">Cards reviewed</th>
                   <th scope="col" className="px-5 py-4">Accuracy</th>
+                  <th scope="col" className="px-5 py-4"><span className="sr-only">Details</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -112,6 +103,7 @@ export default function SessionHistory() {
                       <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-700">{formatDuration(session.totalTimeMs)}</td>
                       <td className="px-5 py-4 text-sm text-slate-700">{session.cardsReviewed.toLocaleString()}</td>
                       <td className="px-5 py-4 text-sm font-semibold text-slate-800">{accuracy === null ? '—' : `${accuracy.toFixed(1)}%`}<span className="mt-1 block text-xs font-normal text-slate-500">{session.correctCount} correct</span></td>
+                      <td className="px-5 py-4 text-sm"><Link to={`/sessions/${session._id}`} className="font-semibold text-indigo-700 hover:underline">View</Link></td>
                     </tr>
                   );
                 })}

@@ -1,34 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/axios';
+import { apiMessage } from '../../api/errors';
+import type { ApiCard, ApiDeck, ListEnvelope } from '../../types/api';
+import CardHistoryModal from './CardHistoryModal';
+import EditCardModal from './EditCardModal';
 
-interface Flashcard {
-  _id: string;
-  front: string;
-  back: string;
-}
-
-interface CardListResponse {
-  data: Flashcard[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  if (typeof error === 'object' && error !== null && 'response' in error) {
-    const response = (error as { response?: { data?: { message?: unknown } } }).response;
-    if (typeof response?.data?.message === 'string') return response.data.message;
-  }
-  return fallback;
-}
+type Filter = 'all' | 'suspended';
 
 export default function CardBrowser() {
   const { id } = useParams<{ id: string }>();
-  const [cards, setCards] = useState<Flashcard[]>([]);
+  const [cards, setCards] = useState<ApiCard[]>([]);
+  const [filter, setFilter] = useState<Filter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [busyCardId, setBusyCardId] = useState<string | null>(null);
+  const [deckArchived, setDeckArchived] = useState(false);
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const [historyCard, setHistoryCard] = useState<ApiCard | null>(null);
 
   const fetchCards = useCallback(async () => {
     if (!id) {
@@ -40,44 +29,93 @@ export default function CardBrowser() {
     setLoading(true);
     setError('');
     try {
-      const first = await api.get<CardListResponse>('/cards', { params: { deck: id, page: 1, limit: 100 } });
+      const baseParams = {
+        deck: id,
+        limit: 100,
+        ...(filter === 'suspended' ? { suspended: true } : {}),
+      };
+      const first = await api.get<ListEnvelope<ApiCard>>('/cards', { params: { ...baseParams, page: 1 } });
       const payload = first.data;
       if (!payload || !Array.isArray(payload.data)) throw new Error('The cards API returned an unexpected response.');
 
       let allCards = payload.data;
       const totalPages = Math.ceil(payload.total / payload.limit);
       for (let page = 2; page <= totalPages; page += 1) {
-        const response = await api.get<CardListResponse>('/cards', { params: { deck: id, page, limit: 100 } });
+        const response = await api.get<ListEnvelope<ApiCard>>('/cards', { params: { ...baseParams, page } });
         if (!Array.isArray(response.data?.data)) throw new Error('The cards API returned an unexpected response.');
         allCards = allCards.concat(response.data.data);
       }
       setCards(allCards);
     } catch (fetchError: unknown) {
-      setError(getErrorMessage(fetchError, fetchError instanceof Error ? fetchError.message : 'Failed to load cards.'));
+      setError(apiMessage(fetchError) ?? (fetchError instanceof Error ? fetchError.message : 'Failed to load cards.'));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, filter]);
 
   useEffect(() => {
     void fetchCards();
   }, [fetchCards]);
 
-  const deleteCard = async (card: Flashcard) => {
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+    api.get<ApiDeck>(`/decks/${id}`)
+      .then((response) => {
+        if (active) setDeckArchived(response.data.archived);
+      })
+      .catch(() => {
+        // The card list reports real errors, so a failed deck lookup only hides the banner.
+      });
+    return () => { active = false; };
+  }, [id]);
+
+  const deleteCard = async (card: ApiCard) => {
     const confirmed = window.confirm(`Delete this flashcard?\n\nFront: ${card.front}`);
     if (!confirmed) return;
 
-    setDeletingId(card._id);
+    setBusyCardId(card._id);
     setError('');
     try {
       await api.delete(`/cards/${card._id}`);
       setCards((current) => current.filter((item) => item._id !== card._id));
     } catch (deleteError: unknown) {
-      setError(getErrorMessage(deleteError, 'Failed to delete the flashcard.'));
+      setError(apiMessage(deleteError) ?? 'Failed to delete the flashcard.');
     } finally {
-      setDeletingId(null);
+      setBusyCardId(null);
     }
   };
+
+  const setSuspended = async (card: ApiCard, suspended: boolean) => {
+    setBusyCardId(card._id);
+    setError('');
+    try {
+      await api.patch(`/cards/${card._id}/suspension`, { suspended });
+      if (filter === 'suspended' && !suspended) {
+        // A card that is no longer suspended leaves the "Suspended" view.
+        setCards((current) => current.filter((item) => item._id !== card._id));
+      } else {
+        setCards((current) => current.map((item) => (item._id === card._id ? { ...item, suspended } : item)));
+      }
+    } catch (suspendError: unknown) {
+      setError(apiMessage(suspendError) ?? 'Failed to update the card.');
+    } finally {
+      setBusyCardId(null);
+    }
+  };
+
+  const filterButton = (value: Filter, label: string) => (
+    <button
+      type="button"
+      aria-pressed={filter === value}
+      onClick={() => setFilter(value)}
+      className={`min-h-10 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+        filter === value ? 'bg-indigo-600 text-white' : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+      }`}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 sm:py-12">
@@ -97,6 +135,17 @@ export default function CardBrowser() {
           </Link>
         </div>
 
+        {deckArchived && (
+          <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+            This deck is archived. Its cards are not studied until the deck is restored from its subject page.
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter cards">
+          {filterButton('all', 'All cards')}
+          {filterButton('suspended', 'Suspended only')}
+        </div>
+
         {error && (
           <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
             <p>{error}</p>
@@ -109,19 +158,32 @@ export default function CardBrowser() {
         {loading ? (
           <div role="status" className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-600">Loading flashcards...</div>
         ) : cards.length === 0 && !error ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-            <h2 className="text-xl font-bold text-slate-900">No flashcards yet</h2>
-            <p className="mt-2 text-slate-600">Add your first card to start building this deck.</p>
-            <Link to={`/decks/${id}/add-card`} className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white hover:bg-indigo-700">
-              Create first card
-            </Link>
-          </div>
+          filter === 'suspended' ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
+              <h2 className="text-xl font-bold text-slate-900">No suspended cards</h2>
+              <p className="mt-2 text-slate-600">Suspended cards are kept out of study until you resume them.</p>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
+              <h2 className="text-xl font-bold text-slate-900">No flashcards yet</h2>
+              <p className="mt-2 text-slate-600">Add your first card to start building this deck.</p>
+              <Link to={`/decks/${id}/add-card`} className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white hover:bg-indigo-700">
+                Create first card
+              </Link>
+            </div>
+          )
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-slate-600">{cards.length} {cards.length === 1 ? 'card' : 'cards'}</p>
             {cards.map((card) => (
               <article key={card._id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-                <div className="grid gap-5 md:grid-cols-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-slate-600">{card.status}</span>
+                  {card.suspended && (
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-amber-800">Suspended</span>
+                  )}
+                </div>
+                <div className="mt-4 grid gap-5 md:grid-cols-2">
                   <div className="min-w-0">
                     <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-700">Front</h2>
                     <p className="mt-2 whitespace-pre-wrap break-words text-slate-800">{card.front}</p>
@@ -131,14 +193,31 @@ export default function CardBrowser() {
                     <p className="mt-2 whitespace-pre-wrap break-words text-slate-800">{card.back}</p>
                   </div>
                 </div>
-                <div className="mt-5 flex justify-end border-t border-slate-100 pt-4">
+                {card.tags.length > 0 && (
+                  <p className="mt-4 text-xs text-slate-500">Tags: {card.tags.join(', ')}</p>
+                )}
+                <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+                  <button type="button" onClick={() => setHistoryCard(card)} className="min-h-10 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                    History
+                  </button>
+                  <button type="button" onClick={() => setEditingCardId(card._id)} className="min-h-10 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void setSuspended(card, !card.suspended)}
+                    disabled={busyCardId !== null}
+                    className="min-h-10 rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {card.suspended ? 'Resume' : 'Suspend'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => void deleteCard(card)}
-                    disabled={deletingId !== null}
-                    className="min-h-10 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={busyCardId !== null}
+                    className="min-h-10 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {deletingId === card._id ? 'Deleting...' : 'Delete'}
+                    {busyCardId === card._id ? 'Working...' : 'Delete'}
                   </button>
                 </div>
               </article>
@@ -146,6 +225,21 @@ export default function CardBrowser() {
           </div>
         )}
       </div>
+
+      {editingCardId && (
+        <EditCardModal
+          cardId={editingCardId}
+          onClose={() => setEditingCardId(null)}
+          onSuccess={() => {
+            setEditingCardId(null);
+            void fetchCards();
+          }}
+        />
+      )}
+
+      {historyCard && (
+        <CardHistoryModal cardId={historyCard._id} cardFront={historyCard.front} onClose={() => setHistoryCard(null)} />
+      )}
     </div>
   );
 }

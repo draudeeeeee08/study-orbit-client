@@ -1,72 +1,121 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../../api/axios';
+import { apiMessage } from '../../api/errors';
+import type { ApiDeck, ApiSubject, ListEnvelope } from '../../types/api';
 import CreateDeckForm from './CreateDeckForm';
+import EditDeckModal from './EditDeckModal';
+import DeckStatsPanel from './DeckStatsPanel';
 import OrbitLoader from '../OrbitLoader';
 
-interface Subject {
-  _id: string;
-  name: string;
-  color: string;
-  icon: string;
-}
-
-interface Deck {
-  _id: string;
-  title: string;
-  description: string;
-  color: string;
-  cardCount: number;
-  dueCount: number;
+/** Decks of one subject. Archived decks are only fetched when the learner asks for them. */
+async function fetchDecks(subjectId: string, archived: boolean): Promise<ApiDeck[]> {
+  const response = await api.get<ListEnvelope<ApiDeck>>('/decks', { params: { subject: subjectId, archived } });
+  return response.data.data;
 }
 
 export default function DeckDetails() {
   const { id } = useParams<{ id: string }>();
-  const [subject, setSubject] = useState<Subject | null>(null);
-  const [decks, setDecks] = useState<Deck[]>([]);
+  const [subject, setSubject] = useState<ApiSubject | null>(null);
+  const [decks, setDecks] = useState<ApiDeck[]>([]);
+  const [archivedDecks, setArchivedDecks] = useState<ApiDeck[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingDeckId, setEditingDeckId] = useState<string | null>(null);
+  const [statsDeckId, setStatsDeckId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
-  const [deleteError, setDeleteError] = useState('');
-  const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [busyDeckId, setBusyDeckId] = useState<string | null>(null);
 
   const fetchSubjectAndDecks = useCallback(async () => {
     try {
       if (!id) throw new Error('No Subject ID provided in the URL.');
 
-      const [subjectRes, decksRes] = await Promise.all([
-        api.get(`/subjects/${id}`),
-        api.get(`/decks?subject=${id}`),
+      const [subjectRes, activeDecks] = await Promise.all([
+        api.get<ApiSubject>(`/subjects/${id}`),
+        fetchDecks(id, false),
       ]);
 
       setSubject(subjectRes.data);
-      setDecks(decksRes.data.data);
-    } catch (err: any) {
+      setDecks(activeDecks);
+    } catch (err: unknown) {
       console.error(err);
-      setError(
-        err.response?.data?.message ||
-          err.message ||
-          'Failed to fetch data.'
-      );
+      setError(apiMessage(err) ?? (err instanceof Error ? err.message : 'Failed to fetch data.'));
     } finally {
       setIsLoading(false);
     }
   }, [id]);
 
   useEffect(() => {
-    fetchSubjectAndDecks();
+    void fetchSubjectAndDecks();
   }, [fetchSubjectAndDecks]);
 
-  const handleDeckCreated = () => {
-    setIsModalOpen(false);
-    setSuccessMessage('Deck created successfully!');
-    fetchSubjectAndDecks();
+  const flashSuccess = (message: string) => {
+    setSuccessMessage(message);
     setTimeout(() => setSuccessMessage(''), 3000);
   };
 
-  const handleDeleteDeck = async (deck: Deck) => {
+  /** Reloads the active list, and the archived list when it is on screen. Does not show the page loader. */
+  const refreshDecks = useCallback(async () => {
+    if (!id) return;
+    try {
+      const [active, archived] = await Promise.all([
+        fetchDecks(id, false),
+        showArchived ? fetchDecks(id, true) : Promise.resolve<ApiDeck[] | null>(null),
+      ]);
+      setDecks(active);
+      if (archived) setArchivedDecks(archived);
+    } catch (err: unknown) {
+      setActionError(apiMessage(err) ?? 'Failed to refresh the decks.');
+    }
+  }, [id, showArchived]);
+
+  const handleDeckCreated = () => {
+    setIsModalOpen(false);
+    flashSuccess('Deck created successfully!');
+    void refreshDecks();
+  };
+
+  const toggleArchivedSection = async () => {
+    if (!id) return;
+    const next = !showArchived;
+    setShowArchived(next);
+    if (next) {
+      try {
+        setArchivedDecks(await fetchDecks(id, true));
+      } catch (err: unknown) {
+        setActionError(apiMessage(err) ?? 'Failed to load archived decks.');
+      }
+    }
+  };
+
+  const setDeckArchived = async (deck: ApiDeck, archived: boolean) => {
+    setBusyDeckId(deck._id);
+    setActionError('');
+    try {
+      // Fetch first, so the PUT sends current values rather than the list's copy.
+      const current = await api.get<ApiDeck>(`/decks/${deck._id}`);
+      await api.put(`/decks/${deck._id}`, {
+        title: current.data.title,
+        description: current.data.description ?? '',
+        color: current.data.color,
+        dailyNewLimit: current.data.dailyNewLimit,
+        archived,
+        subject: current.data.subject._id,
+      });
+      flashSuccess(archived ? `"${deck.title}" was archived.` : `"${deck.title}" was restored.`);
+      await refreshDecks();
+    } catch (err: unknown) {
+      setActionError(apiMessage(err) ?? 'Failed to update the deck. Please try again.');
+    } finally {
+      setBusyDeckId(null);
+    }
+  };
+
+  const handleDeleteDeck = async (deck: ApiDeck) => {
     const confirmed = window.confirm(
       `Are you sure you want to delete "${deck.title}"?\n\n` +
         'This may permanently delete the deck, its flashcards, and associated study history. This action cannot be undone.'
@@ -74,28 +123,130 @@ export default function DeckDetails() {
 
     if (!confirmed) return;
 
-    setDeletingDeckId(deck._id);
-    setDeleteError('');
+    setBusyDeckId(deck._id);
+    setActionError('');
 
     try {
       await api.delete(`/decks/${deck._id}`);
-
-      setDecks((currentDecks) =>
-        currentDecks.filter((item) => item._id !== deck._id)
-      );
-
-      setSuccessMessage(`"${deck.title}" was deleted successfully.`);
-      setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (err: any) {
+      setDecks((currentDecks) => currentDecks.filter((item) => item._id !== deck._id));
+      setArchivedDecks((currentDecks) => currentDecks.filter((item) => item._id !== deck._id));
+      flashSuccess(`"${deck.title}" was deleted successfully.`);
+    } catch (err: unknown) {
       console.error(err);
-      setDeleteError(
-        err.response?.data?.message ||
-          err.message ||
-          'Failed to delete the deck. Please try again.'
-      );
+      setActionError(apiMessage(err) ?? 'Failed to delete the deck. Please try again.');
     } finally {
-      setDeletingDeckId(null);
+      setBusyDeckId(null);
     }
+  };
+
+  const renderDeckCard = (deck: ApiDeck) => {
+    const archived = deck.archived;
+    const busy = busyDeckId !== null;
+
+    return (
+      <div
+        key={deck._id}
+        className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 hover:shadow-md transition-all flex flex-col h-full group relative overflow-hidden"
+      >
+        <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: deck.color }} />
+
+        <div className="flex-grow mt-2 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="text-xl font-bold text-slate-800">{deck.title}</h2>
+            {archived && (
+              <span className="shrink-0 rounded-md bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-700">Archived</span>
+            )}
+          </div>
+
+          <p className="text-slate-500 text-sm line-clamp-2">{deck.description}</p>
+
+          <div className="flex gap-3 pt-2">
+            <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md">
+              Cards: {deck.cardCount}
+            </span>
+
+            {!archived && deck.dueCount > 0 && (
+              <span className="inline-flex items-center px-2.5 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-md animate-pulse">
+                Due: {deck.dueCount}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-2 border-t border-slate-100 pt-4">
+          {archived ? (
+            <button
+              type="button"
+              disabled
+              className="flex min-h-11 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-100 px-3 py-2.5 font-bold text-slate-400"
+            >
+              Study paused (archived)
+            </button>
+          ) : (
+            <Link
+              to={`/study/${deck._id}`}
+              className="flex min-h-11 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 font-bold text-indigo-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            >
+              Study Now
+            </Link>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <Link
+              to={`/decks/${deck._id}/cards`}
+              className="flex min-h-10 items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            >
+              Browse Cards
+            </Link>
+
+            <Link
+              to={`/decks/${deck._id}/add-card`}
+              className="flex min-h-10 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            >
+              + Add Card
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setEditingDeckId(deck._id)}
+              disabled={busy}
+              className="min-h-10 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => void setDeckArchived(deck, !archived)}
+              disabled={busy}
+              className="min-h-10 rounded-lg border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-50 disabled:opacity-50"
+            >
+              {busyDeckId === deck._id ? 'Saving...' : archived ? 'Restore' : 'Archive'}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            aria-expanded={statsDeckId === deck._id}
+            onClick={() => setStatsDeckId(statsDeckId === deck._id ? null : deck._id)}
+            className="w-full min-h-10 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            {statsDeckId === deck._id ? 'Hide statistics' : 'Show statistics'}
+          </button>
+          {statsDeckId === deck._id && <DeckStatsPanel deckId={deck._id} />}
+
+          <button
+            type="button"
+            onClick={() => void handleDeleteDeck(deck)}
+            disabled={busy}
+            className="w-full min-h-10 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busyDeckId === deck._id && !archived ? 'Deleting...' : 'Delete Deck'}
+          </button>
+        </div>
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -160,98 +311,52 @@ export default function DeckDetails() {
           </div>
         </div>
 
-        {deleteError && (
+        {actionError && (
           <div
             role="alert"
             className="bg-red-50 text-red-700 px-5 py-3 rounded-xl border border-red-200"
           >
-            {deleteError}
+            {actionError}
           </div>
         )}
 
         {decks.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 border-dashed">
             <p className="text-slate-500 text-lg">
-              No decks found for {subject.name}.
+              No active decks for {subject.name}.
             </p>
             <p className="text-slate-400 mt-2">
-              You can now return to My Subjects and delete this subject if you
-              wish.
+              Create a deck, or open the archived decks below to restore one.
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {decks.map((deck) => (
-              <div
-                key={deck._id}
-                className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 hover:shadow-md transition-all flex flex-col h-full group relative overflow-hidden"
-              >
-                <div
-                  className="absolute top-0 left-0 w-full h-1.5"
-                  style={{ backgroundColor: deck.color }}
-                />
-
-                <div className="flex-grow mt-2 space-y-3">
-                  <h2 className="text-xl font-bold text-slate-800">
-                    {deck.title}
-                  </h2>
-
-                  <p className="text-slate-500 text-sm line-clamp-2">
-                    {deck.description}
-                  </p>
-
-                  <div className="flex gap-3 pt-2">
-                    <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md">
-                      Cards: {deck.cardCount}
-                    </span>
-
-                    {deck.dueCount > 0 && (
-                      <span className="inline-flex items-center px-2.5 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-md animate-pulse">
-                        Due: {deck.dueCount}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-6 space-y-2 border-t border-slate-100 pt-4">
-                  <Link
-                    to={`/study/${deck._id}`}
-                    className="flex min-h-11 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 font-bold text-indigo-700 transition-colors hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                  >
-                    Study Now
-                  </Link>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <Link
-                      to={`/decks/${deck._id}/cards`}
-                      className="flex min-h-10 items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                    >
-                      Browse Cards
-                    </Link>
-
-                    <Link
-                      to={`/decks/${deck._id}/add-card`}
-                      className="flex min-h-10 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                    >
-                      + Add Card
-                    </Link>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteDeck(deck)}
-                    disabled={deletingDeckId !== null}
-                    className="w-full min-h-10 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {deletingDeckId === deck._id
-                      ? 'Deleting...'
-                      : 'Delete Deck'}
-                  </button>
-                </div>
-              </div>
-            ))}
+            {decks.map(renderDeckCard)}
           </div>
         )}
+
+        <div className="space-y-4">
+          <button
+            type="button"
+            aria-expanded={showArchived}
+            onClick={() => void toggleArchivedSection()}
+            className="min-h-11 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            {showArchived ? 'Hide archived decks' : 'Show archived decks'}
+          </button>
+
+          {showArchived && (
+            archivedDecks.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
+                No archived decks in {subject.name}.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {archivedDecks.map(renderDeckCard)}
+              </div>
+            )
+          )}
+        </div>
       </div>
 
       {isModalOpen && id && (
@@ -259,6 +364,18 @@ export default function DeckDetails() {
           subjectId={id}
           onClose={() => setIsModalOpen(false)}
           onSuccess={handleDeckCreated}
+        />
+      )}
+
+      {editingDeckId && (
+        <EditDeckModal
+          deckId={editingDeckId}
+          onClose={() => setEditingDeckId(null)}
+          onSuccess={() => {
+            setEditingDeckId(null);
+            flashSuccess('Deck updated successfully!');
+            void refreshDecks();
+          }}
         />
       )}
     </div>

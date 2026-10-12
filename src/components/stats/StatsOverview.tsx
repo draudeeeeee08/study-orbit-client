@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/axios';
+
+// recharts is large, so the charts load only when this page is opened.
+const StatsCharts = lazy(() => import('./StatsCharts'));
 
 interface StatsOverviewData {
   totalSubjects?: number;
@@ -114,6 +117,12 @@ export default function StatsOverview() {
               ))}
             </div>
           </article>
+        </section>
+
+        <section aria-label="Activity and forecast">
+          <Suspense fallback={<div role="status" className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-600">Loading charts...</div>}>
+            <StatsCharts />
+          </Suspense>
         </section>
 
         <div className="flex flex-col gap-3 sm:flex-row">
